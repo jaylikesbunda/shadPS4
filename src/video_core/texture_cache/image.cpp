@@ -341,7 +341,7 @@ void Image::Download(vk::Buffer buffer, u64 offset) {
             .baseArrayLayer = 0,
             .layerCount = info.resources.layers,
         },
-        .imageOffset{0,0,0},
+        .imageOffset{0, 0, 0},
         .imageExtent{info.size.width, info.size.height, info.size.depth},
     };
 

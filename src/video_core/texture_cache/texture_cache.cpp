@@ -118,10 +118,22 @@ void TextureCache::UnmapMemory(VAddr cpu_addr, size_t size) {
     boost::container::small_vector<ImageId, 16> deleted_images;
     ForEachImageInRegion(cpu_addr, size, [&](ImageId id, Image&) { deleted_images.push_back(id); });
     for (const ImageId id : deleted_images) {
-        // TODO: Download image data back to host.
         Image& image = slot_images[id];
-        const auto& download_buffer = buffer_cache.GetUtilityBuffer(MemoryUsage::Download);
-        image.Download(download_buffer.Handle(), 0);
+
+        // reserve space in the host-visible download buffer
+        auto& dl = buffer_cache.GetUtilityBuffer(MemoryUsage::Download);
+        const u64 img_size = image.info.guest_size;
+        const auto [cpu_ptr, buf_offset] = dl.Map(img_size, 16);
+        dl.Commit();
+
+        // copy GPU image → host buffer
+        image.Download(dl.Handle(), buf_offset);
+
+        // wait for GPU to finish so data is visible on CPU
+        scheduler.Finish();
+
+        // write the pixels back into guest RAM
+        std::memcpy(std::bit_cast<void*>(image.info.guest_address), cpu_ptr, img_size);
 
         FreeImage(id);
     }
