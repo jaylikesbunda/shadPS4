@@ -331,21 +331,30 @@ void Image::Download(vk::Buffer buffer, u64 offset) {
 
     vk::CommandBuffer cmdbuf = scheduler->CommandBuffer();
 
-    const vk::BufferImageCopy region{
-        .bufferOffset = offset,
-        .bufferRowLength = 0,
-        .bufferImageHeight = 0,
-        .imageSubresource{
-            .aspectMask = aspect_mask,
-            .mipLevel = 0,
-            .baseArrayLayer = 0,
-            .layerCount = info.resources.layers,
-        },
-        .imageOffset{0, 0, 0},
-        .imageExtent{info.size.width, info.size.height, info.size.depth},
-    };
+    u64 cur_offset = offset;
+    for (u32 mip = 0; mip < info.resources.levels; ++mip) {
+        const auto& mip_layout = info.mips_layout[mip];
 
-    cmdbuf.copyImageToBuffer(image, vk::ImageLayout::eTransferSrcOptimal, buffer, region);
+        const vk::BufferImageCopy region{
+            .bufferOffset = cur_offset,
+            .bufferRowLength = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource{
+                .aspectMask = aspect_mask,
+                .mipLevel = mip,
+                .baseArrayLayer = 0,
+                .layerCount = info.resources.layers,
+            },
+            .imageOffset{0, 0, 0},
+            .imageExtent{std::max(1u, info.size.width >> mip),
+                         std::max(1u, info.size.height >> mip),
+                         std::max(1u, info.size.depth >> mip)},
+        };
+
+        cmdbuf.copyImageToBuffer(image, vk::ImageLayout::eTransferSrcOptimal, buffer, region);
+
+        cur_offset += mip_layout.size;
+    }
 
     Transit(vk::ImageLayout::eGeneral, vk::AccessFlagBits2::eNone, {});
 }
