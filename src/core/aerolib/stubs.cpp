@@ -4,6 +4,7 @@
 #include "common/logging/log.h"
 #include "core/aerolib/aerolib.h"
 #include "core/aerolib/stubs.h"
+#include <cstring>
 
 namespace Core::AeroLib {
 
@@ -29,6 +30,11 @@ u64 UnresolvedStub() {
 static u64 UnknownStub() {
     LOG_ERROR(Core, "Returning zero to {}", __builtin_return_address(0));
     return 0;
+}
+
+static u64 SelectReadyStub() {
+    // pretend at least one fd is ready so streaming io makes progress
+    return 1;
 }
 
 static const NidEntry* stub_nids[MAX_STUBS];
@@ -67,6 +73,10 @@ static u32 UsedStubEntries;
 static u64 (*stub_handlers[MAX_STUBS])() = {STUBS_LIST};
 
 u64 GetStub(const char* nid) {
+    // handle select explicitly so it doesn't always timeout
+    if (strcmp(nid, "T8fER+tIGgk") == 0) {
+        return (u64)&SelectReadyStub;
+    }
     if (UsedStubEntries >= MAX_STUBS) {
         return (u64)&UnknownStub;
     }
