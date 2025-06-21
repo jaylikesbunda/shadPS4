@@ -7,6 +7,7 @@
 #include "core/loader/symbols_resolver.h"
 #include "common/singleton.h"
 #include "common/logging/log.h"
+#include "core/libraries/libs.h"
 
 namespace Libraries::Fios2 {
 
