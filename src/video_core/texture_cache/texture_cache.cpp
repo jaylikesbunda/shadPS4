@@ -121,7 +121,7 @@ void TextureCache::UnmapMemory(VAddr cpu_addr, size_t size) {
         // TODO: Download image data back to host.
         Image& image = slot_images[id];
         const auto& download_buffer = buffer_cache.GetUtilityBuffer(MemoryUsage::Download);
-        image.Download(download_buffer.Handle(), image.info.guest_address);
+        image.Download(download_buffer.Handle(), 0);
 
         FreeImage(id);
     }
