@@ -132,6 +132,12 @@ void TextureCache::UnmapMemory(VAddr cpu_addr, size_t size) {
         // wait for GPU to finish so data is visible on CPU
         scheduler.Finish();
 
+        // ensure host cache sees GPU writes for non-coherent memory
+        if (!dl.is_coherent) {
+            vmaInvalidateAllocation(instance.GetAllocator(), dl.buffer.allocation, buf_offset,
+                                    img_size);
+        }
+
         // write the pixels back into guest RAM
         std::memcpy(std::bit_cast<void*>(image.info.guest_address), cpu_ptr, img_size);
 
