@@ -11,6 +11,7 @@
 #include "core/libraries/camera/camera.h"
 #include "core/libraries/companion/companion_httpd.h"
 #include "core/libraries/companion/companion_util.h"
+#include "core/libraries/fios2/fios2.h"
 #include "core/libraries/disc_map/disc_map.h"
 #include "core/libraries/game_live_streaming/gamelivestreaming.h"
 #include "core/libraries/gnmdriver/gnmdriver.h"
@@ -130,6 +131,7 @@ void InitHLELibs(Core::Loader::SymbolsResolver* sym) {
     Libraries::CompanionHttpd::RegisterlibSceCompanionHttpd(sym);
     Libraries::CompanionUtil::RegisterlibSceCompanionUtil(sym);
     Libraries::Voice::RegisterlibSceVoice(sym);
+    Libraries::Fios2::RegisterlibSceFios2(sym);
 }
 
 } // namespace Libraries
