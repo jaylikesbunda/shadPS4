@@ -326,9 +326,10 @@ void Image::Upload(vk::Buffer buffer, u64 offset) {
 }
 
 void Image::Download(vk::Buffer buffer, u64 offset) {
+    scheduler->EndRendering();
     Transit(vk::ImageLayout::eTransferSrcOptimal, vk::AccessFlagBits2::eTransferRead, {});
 
-    vk::CommandBuffer copy_cmd = scheduler->GetTransferCmdBuffer();
+    vk::CommandBuffer cmdbuf = scheduler->CommandBuffer();
 
     const vk::BufferImageCopy region{
         .bufferOffset = offset,
@@ -340,21 +341,13 @@ void Image::Download(vk::Buffer buffer, u64 offset) {
             .baseArrayLayer = 0,
             .layerCount = info.resources.layers,
         },
-        .imageOffset{
-            .x = 0,
-            .y = 0,
-            .z = 0,
-        },
-        .imageExtent{
-            .width = info.size.width,
-            .height = info.size.height,
-            .depth = info.size.depth,
-        },
+        .imageOffset{0,0,0},
+        .imageExtent{info.size.width, info.size.height, info.size.depth},
     };
-    copy_cmd.copyImageToBuffer(image, vk::ImageLayout::eTransferSrcOptimal, buffer, region);
-    Transit(vk::ImageLayout::eGeneral, vk::AccessFlagBits2::eNone, {});
 
-    scheduler->Queue().Add(std::move(copy_cmd), {});
+    cmdbuf.copyImageToBuffer(image, vk::ImageLayout::eTransferSrcOptimal, buffer, region);
+
+    Transit(vk::ImageLayout::eGeneral, vk::AccessFlagBits2::eNone, {});
 }
 
 void Image::CopyImage(const Image& src_image) {
