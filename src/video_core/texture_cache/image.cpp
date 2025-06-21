@@ -325,6 +325,38 @@ void Image::Upload(vk::Buffer buffer, u64 offset) {
             vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eTransferRead, {});
 }
 
+void Image::Download(vk::Buffer buffer, u64 offset) {
+    Transit(vk::ImageLayout::eTransferSrcOptimal, vk::AccessFlagBits2::eTransferRead, {});
+
+    vk::CommandBuffer copy_cmd = scheduler->GetTransferCmdBuffer();
+
+    const vk::BufferImageCopy region{
+        .bufferOffset = offset,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource{
+            .aspectMask = aspect_mask,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = info.resources.layers,
+        },
+        .imageOffset{
+            .x = 0,
+            .y = 0,
+            .z = 0,
+        },
+        .imageExtent{
+            .width = info.size.width,
+            .height = info.size.height,
+            .depth = info.size.depth,
+        },
+    };
+    copy_cmd.copyImageToBuffer(image, vk::ImageLayout::eTransferSrcOptimal, buffer, region);
+    Transit(vk::ImageLayout::eGeneral, vk::AccessFlagBits2::eNone, {});
+
+    scheduler->Queue().Add(std::move(copy_cmd), {});
+}
+
 void Image::CopyImage(const Image& src_image) {
     scheduler->EndRendering();
     Transit(vk::ImageLayout::eTransferDstOptimal, vk::AccessFlagBits2::eTransferWrite, {});
