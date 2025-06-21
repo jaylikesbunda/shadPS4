@@ -3,7 +3,7 @@
 #include <filesystem>
 #include <cstddef>
 #include "core/file_sys/fs.h"
-#include "core/file_sys/io_file.h"
+#include "common/io_file.h"
 #include "core/loader/symbols_resolver.h"
 #include "common/singleton.h"
 #include "common/logging/log.h"
@@ -38,7 +38,7 @@ s32 PS4_SYSV_ABI sceFiosFileGetSizeSync(const char* path, u64* out_size) {
 s32 PS4_SYSV_ABI sceFiosFileReadSync(const char* path, void* buf, u64 size, u64 offset,
                                      u64* out_read) {
     const auto host = MapGuestPath(path);
-    Core::FileSys::IOFile file(host, Common::FS::FileAccessMode::Read);
+    Common::FS::IOFile file(host, Common::FS::FileAccessMode::Read);
     if (!file.IsOpen()) {
         if (out_read) *out_read = 0;
         return -1;
