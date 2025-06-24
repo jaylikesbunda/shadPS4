@@ -125,6 +125,9 @@ public:
         RefreshImage(image, custom_scheduler);
     }
 
+    /// Synchronizes aliased images when one is about to be used
+    void SynchronizeAliases(ImageId image_id);
+
     [[nodiscard]] std::tuple<ImageId, int, int> ResolveOverlap(const ImageInfo& info,
                                                                BindingType binding,
                                                                ImageId cache_img_id,

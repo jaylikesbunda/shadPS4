@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
+// SPDX-FileCpyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <optional>
@@ -358,8 +358,28 @@ ImageId TextureCache::CreateAliasedImage(const ImageInfo& info, ImageId base_ima
     new_image.usage = base_image.usage;
     new_image.flags &= ~ImageFlagBits::Dirty;
 
+    // Establish bidirectional alias relationship
+    base_image.AddAlias(new_image_id);
+    new_image.AddAlias(base_image_id);
+
     TrackImage(new_image_id);
     return new_image_id;
+}
+
+void TextureCache::SynchronizeAliases(ImageId image_id) {
+    Image& image = slot_images[image_id];
+    if (image.aliases.empty()) {
+        return;
+    }
+
+    // Ensure all aliases are in a compatible state
+    for (ImageId alias_id : image.aliases) {
+        Image& alias = slot_images[alias_id];
+        // If the alias has a different layout, we need to synchronize
+        if (alias.last_state.layout != image.last_state.layout) {
+            alias.Transit(image.last_state.layout, image.last_state.access_mask, {});
+        }
+    }
 }
 
 ImageId TextureCache::FindImage(BaseDesc& desc, FindFlags flags) {
@@ -470,6 +490,7 @@ ImageView& TextureCache::RegisterImageView(ImageId image_id, const ImageViewInfo
 
 ImageView& TextureCache::FindTexture(ImageId image_id, const ImageViewInfo& view_info) {
     Image& image = slot_images[image_id];
+    SynchronizeAliases(image_id);
     UpdateImage(image_id);
     return RegisterImageView(image_id, view_info);
 }
@@ -479,6 +500,7 @@ ImageView& TextureCache::FindRenderTarget(BaseDesc& desc) {
     Image& image = slot_images[image_id];
     image.flags |= ImageFlagBits::GpuModified;
     image.usage.render_target = 1u;
+    SynchronizeAliases(image_id);
     UpdateImage(image_id);
 
     // Register meta data for this color buffer
@@ -507,6 +529,7 @@ ImageView& TextureCache::FindDepthTarget(BaseDesc& desc) {
     image.flags |= ImageFlagBits::GpuModified;
     image.usage.depth_target = 1u;
     image.usage.stencil = image.info.HasStencil();
+    SynchronizeAliases(image_id);
     UpdateImage(image_id);
 
     // Register meta data for this depth buffer
@@ -837,6 +860,13 @@ void TextureCache::DeleteImage(ImageId image_id) {
     Image& image = slot_images[image_id];
     ASSERT_MSG(!image.IsTracked(), "Image was not untracked");
     ASSERT_MSG(False(image.flags & ImageFlagBits::Registered), "Image was not unregistered");
+
+    // Remove alias relationships
+    for (ImageId alias_id : image.aliases) {
+        if (slot_images.IsValidId(alias_id)) {
+            slot_images[alias_id].RemoveAlias(image_id);
+        }
+    }
 
     // Remove any registered meta areas.
     const auto& meta_info = image.info.meta_info;

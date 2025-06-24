@@ -10,6 +10,7 @@
 #include "video_core/texture_cache/image_view.h"
 
 #include <optional>
+#include <algorithm>
 
 namespace Vulkan {
 class Instance;
@@ -104,6 +105,16 @@ struct Image {
         depth_id = image_id;
     }
 
+    void AddAlias(ImageId alias_id) {
+        if (std::find(aliases.begin(), aliases.end(), alias_id) == aliases.end()) {
+            aliases.push_back(alias_id);
+        }
+    }
+
+    void RemoveAlias(ImageId alias_id) {
+        aliases.erase(std::remove(aliases.begin(), aliases.end(), alias_id), aliases.end());
+    }
+
     boost::container::small_vector<vk::ImageMemoryBarrier2, 32> GetBarriers(
         vk::ImageLayout dst_layout, vk::Flags<vk::AccessFlagBits2> dst_mask,
         vk::PipelineStageFlags2 dst_stage, std::optional<SubresourceRange> subres_range);
@@ -130,6 +141,7 @@ struct Image {
     std::vector<ImageViewInfo> image_view_infos;
     std::vector<ImageViewId> image_view_ids;
     ImageId depth_id{};
+    boost::container::small_vector<ImageId, 4> aliases{};
 
     // Resource state tracking
     struct {
