@@ -3,6 +3,7 @@
 
 #include <optional>
 #include <xxhash.h>
+#include <boost/container/small_vector.hpp>
 
 #include "common/assert.h"
 #include "common/debug.h"
@@ -372,39 +373,75 @@ void TextureCache::SynchronizeAliases(ImageId image_id) {
         return;
     }
 
-    // End rendering so we can insert a barrier.
     scheduler.EndRendering();
-
     auto cmdbuf = scheduler.CommandBuffer();
 
-    vk::PipelineStageFlags2 src_stage_mask = vk::PipelineStageFlagBits2::eNone;
-    vk::AccessFlags2 src_access_mask = vk::AccessFlagBits2::eNone;
-
-    // Make all aliases share the same layout and gather src stage/access for barrier
+    boost::container::small_vector<vk::ImageMemoryBarrier2, 4> barriers;
+    
+    // Create image barriers for all aliases to flush color attachment writes
     for (ImageId alias_id : image.aliases) {
         Image& alias = slot_images[alias_id];
-        src_stage_mask |= alias.last_state.pl_stage;
-        src_access_mask |= alias.last_state.access_mask;
-
-        if (alias.last_state.layout != image.last_state.layout ||
-            alias.last_state.access_mask != image.last_state.access_mask) {
-            alias.Transit(image.last_state.layout, image.last_state.access_mask, {});
-        }
+        
+        // Create barrier to flush any pending color attachment writes
+        const vk::ImageMemoryBarrier2 barrier{
+            .srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            .srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
+            .dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            .dstAccessMask = vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eColorAttachmentWrite,
+            .oldLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .newLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = alias.image,
+            .subresourceRange = {
+                .aspectMask = alias.aspect_mask,
+                .baseMipLevel = 0,
+                .levelCount = VK_REMAINING_MIP_LEVELS,
+                .baseArrayLayer = 0,
+                .layerCount = VK_REMAINING_ARRAY_LAYERS,
+            },
+        };
+        barriers.push_back(barrier);
+        
+        // Update alias state to match current image
+        alias.last_state.layout = vk::ImageLayout::eColorAttachmentOptimal;
+        alias.last_state.access_mask = vk::AccessFlagBits2::eColorAttachmentWrite;
+        alias.last_state.pl_stage = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
     }
 
-    // Insert a global memory barrier ensuring writes are visible to subsequent reads
-    const vk::MemoryBarrier2 memory_barrier{
-        .srcStageMask = src_stage_mask,
-        .srcAccessMask = src_access_mask,
-        .dstStageMask = image.last_state.pl_stage,
-        .dstAccessMask = image.last_state.access_mask,
+    // Also create barrier for the main image
+    const vk::ImageMemoryBarrier2 main_barrier{
+        .srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        .srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
+        .dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        .dstAccessMask = vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eColorAttachmentWrite,
+        .oldLayout = vk::ImageLayout::eColorAttachmentOptimal,
+        .newLayout = vk::ImageLayout::eColorAttachmentOptimal,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = image.image,
+        .subresourceRange = {
+            .aspectMask = image.aspect_mask,
+            .baseMipLevel = 0,
+            .levelCount = VK_REMAINING_MIP_LEVELS,
+            .baseArrayLayer = 0,
+            .layerCount = VK_REMAINING_ARRAY_LAYERS,
+        },
     };
+    barriers.push_back(main_barrier);
 
-    cmdbuf.pipelineBarrier2(vk::DependencyInfo{
-        .dependencyFlags = vk::DependencyFlagBits::eByRegion,
-        .memoryBarrierCount = 1,
-        .pMemoryBarriers = &memory_barrier,
-    });
+    // Update main image state
+    image.last_state.layout = vk::ImageLayout::eColorAttachmentOptimal;
+    image.last_state.access_mask = vk::AccessFlagBits2::eColorAttachmentWrite;
+    image.last_state.pl_stage = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+
+    if (!barriers.empty()) {
+        cmdbuf.pipelineBarrier2(vk::DependencyInfo{
+            .dependencyFlags = vk::DependencyFlagBits::eByRegion,
+            .imageMemoryBarrierCount = static_cast<u32>(barriers.size()),
+            .pImageMemoryBarriers = barriers.data(),
+        });
+    }
 }
 
 ImageId TextureCache::FindImage(BaseDesc& desc, FindFlags flags) {
