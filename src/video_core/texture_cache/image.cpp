@@ -99,24 +99,13 @@ void UniqueImage::CreateAliasing(VmaAllocation base_allocation, u64 alias_offset
         vmaDestroyImage(allocator, image, allocation);
     }
     
-    auto [result, vk_image] = device.createImage(image_ci);
-    ASSERT_MSG(result == vk::Result::eSuccess, "Failed creating aliasing image with error {}",
-               vk::to_string(result));
+    const VkImageCreateInfo image_ci_unsafe = static_cast<VkImageCreateInfo>(image_ci);
+    VkImage unsafe_image{};
+    VkResult result = vmaCreateAliasingImage(allocator, base_allocation, &image_ci_unsafe, &unsafe_image);
+    ASSERT_MSG(result == VK_SUCCESS, "Failed creating aliasing image with error {}",
+               vk::to_string(vk::Result{result}));
     
-    VmaAllocationInfo alloc_info;
-    vmaGetAllocationInfo(allocator, base_allocation, &alloc_info);
-    
-    const vk::BindImageMemoryInfo bind_info = {
-        .image = vk_image,
-        .memory = alloc_info.deviceMemory,
-        .memoryOffset = alloc_info.offset + alias_offset,
-    };
-    
-    result = device.bindImageMemory2(bind_info);
-    ASSERT_MSG(result == vk::Result::eSuccess, "Failed binding aliasing image memory with error {}",
-               vk::to_string(result));
-    
-    image = vk_image;
+    image = vk::Image{unsafe_image};
     allocation = base_allocation;
     is_aliased = true;
 }
