@@ -65,7 +65,7 @@ UniqueImage::UniqueImage(vk::Device device_, VmaAllocator allocator_)
 UniqueImage::~UniqueImage() {
     if (image) {
         if (is_aliased) {
-            vkDestroyImage(device, image, nullptr);
+            device.destroyImage(image);
         } else {
             vmaDestroyImage(allocator, image, allocation);
         }
@@ -101,8 +101,23 @@ void UniqueImage::CreateAliasing(VmaAllocation base_allocation, u64 alias_offset
     
     const VkImageCreateInfo image_ci_unsafe = static_cast<VkImageCreateInfo>(image_ci);
     VkImage unsafe_image{};
-    VkResult result = vmaCreateAliasingImage(allocator, base_allocation, alias_offset, &image_ci_unsafe, &unsafe_image);
+    VkResult result = vkCreateImage(static_cast<VkDevice>(device), &image_ci_unsafe, nullptr, &unsafe_image);
     ASSERT_MSG(result == VK_SUCCESS, "Failed creating aliasing image with error {}",
+               vk::to_string(vk::Result{result}));
+    
+    VmaAllocationInfo alloc_info;
+    vmaGetAllocationInfo(allocator, base_allocation, &alloc_info);
+    
+    const VkBindImageMemoryInfo bind_info = {
+        .sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO,
+        .pNext = nullptr,
+        .image = unsafe_image,
+        .memory = alloc_info.deviceMemory,
+        .memoryOffset = alloc_info.offset + alias_offset,
+    };
+    
+    result = vkBindImageMemory2(static_cast<VkDevice>(device), 1, &bind_info);
+    ASSERT_MSG(result == VK_SUCCESS, "Failed binding aliasing image memory with error {}",
                vk::to_string(vk::Result{result}));
     
     image = vk::Image{unsafe_image};
@@ -266,7 +281,7 @@ Image::Image(const Vulkan::Instance& instance_, Vulkan::Scheduler& scheduler_,
         .initialLayout = vk::ImageLayout::eUndefined,
     };
 
-    image.CreateAliasing(base_image.image.allocation, alias_offset, image_ci);
+    image.CreateAliasing(base_image.image.GetAllocation(), alias_offset, image_ci);
 
     Vulkan::SetObjectName(instance->GetDevice(), (vk::Image)image, "Aliased Image {}x{}x{} {:#x}:{:#x}",
                           info.size.width, info.size.height, info.size.depth, info.guest_address,

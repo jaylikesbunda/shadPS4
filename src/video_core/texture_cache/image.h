@@ -60,6 +60,10 @@ struct UniqueImage {
         return image;
     }
 
+    VmaAllocation GetAllocation() const {
+        return allocation;
+    }
+
 private:
     vk::Device device;
     VmaAllocator allocator;
