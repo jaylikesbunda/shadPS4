@@ -99,28 +99,24 @@ void UniqueImage::CreateAliasing(VmaAllocation base_allocation, u64 alias_offset
         vmaDestroyImage(allocator, image, allocation);
     }
     
-    const VkImageCreateInfo image_ci_unsafe = static_cast<VkImageCreateInfo>(image_ci);
-    VkImage unsafe_image{};
-    VkResult result = vkCreateImage(static_cast<VkDevice>(device), &image_ci_unsafe, nullptr, &unsafe_image);
-    ASSERT_MSG(result == VK_SUCCESS, "Failed creating aliasing image with error {}",
-               vk::to_string(vk::Result{result}));
+    auto [result, vk_image] = device.createImage(image_ci);
+    ASSERT_MSG(result == vk::Result::eSuccess, "Failed creating aliasing image with error {}",
+               vk::to_string(result));
     
     VmaAllocationInfo alloc_info;
     vmaGetAllocationInfo(allocator, base_allocation, &alloc_info);
     
-    const VkBindImageMemoryInfo bind_info = {
-        .sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO,
-        .pNext = nullptr,
-        .image = unsafe_image,
+    const vk::BindImageMemoryInfo bind_info = {
+        .image = vk_image,
         .memory = alloc_info.deviceMemory,
         .memoryOffset = alloc_info.offset + alias_offset,
     };
     
-    result = vkBindImageMemory2(static_cast<VkDevice>(device), 1, &bind_info);
-    ASSERT_MSG(result == VK_SUCCESS, "Failed binding aliasing image memory with error {}",
-               vk::to_string(vk::Result{result}));
+    result = device.bindImageMemory2(bind_info);
+    ASSERT_MSG(result == vk::Result::eSuccess, "Failed binding aliasing image memory with error {}",
+               vk::to_string(result));
     
-    image = vk::Image{unsafe_image};
+    image = vk_image;
     allocation = base_allocation;
     is_aliased = true;
 }
