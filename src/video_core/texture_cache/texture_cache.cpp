@@ -863,7 +863,7 @@ void TextureCache::DeleteImage(ImageId image_id) {
 
     // Remove alias relationships
     for (ImageId alias_id : image.aliases) {
-        if (slot_images.IsValidId(alias_id)) {
+        if (slot_images.is_allocated(alias_id)) {
             slot_images[alias_id].RemoveAlias(image_id);
         }
     }
