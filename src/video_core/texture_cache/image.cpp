@@ -64,7 +64,11 @@ UniqueImage::UniqueImage(vk::Device device_, VmaAllocator allocator_)
 
 UniqueImage::~UniqueImage() {
     if (image) {
-        vmaDestroyImage(allocator, image, allocation);
+        if (is_aliased) {
+            vkDestroyImage(device, image, nullptr);
+        } else {
+            vmaDestroyImage(allocator, image, allocation);
+        }
     }
 }
 
@@ -88,6 +92,22 @@ void UniqueImage::Create(const vk::ImageCreateInfo& image_ci) {
     ASSERT_MSG(result == VK_SUCCESS, "Failed allocating image with error {}",
                vk::to_string(vk::Result{result}));
     image = vk::Image{unsafe_image};
+}
+
+void UniqueImage::CreateAliasing(VmaAllocation base_allocation, u64 alias_offset, const vk::ImageCreateInfo& image_ci) {
+    if (image) {
+        vmaDestroyImage(allocator, image, allocation);
+    }
+    
+    const VkImageCreateInfo image_ci_unsafe = static_cast<VkImageCreateInfo>(image_ci);
+    VkImage unsafe_image{};
+    VkResult result = vmaCreateAliasingImage(allocator, base_allocation, alias_offset, &image_ci_unsafe, &unsafe_image);
+    ASSERT_MSG(result == VK_SUCCESS, "Failed creating aliasing image with error {}",
+               vk::to_string(vk::Result{result}));
+    
+    image = vk::Image{unsafe_image};
+    allocation = base_allocation;
+    is_aliased = true;
 }
 
 Image::Image(const Vulkan::Instance& instance_, Vulkan::Scheduler& scheduler_,
@@ -169,6 +189,86 @@ Image::Image(const Vulkan::Instance& instance_, Vulkan::Scheduler& scheduler_,
     image.Create(image_ci);
 
     Vulkan::SetObjectName(instance->GetDevice(), (vk::Image)image, "Image {}x{}x{} {:#x}:{:#x}",
+                          info.size.width, info.size.height, info.size.depth, info.guest_address,
+                          info.guest_size);
+}
+
+Image::Image(const Vulkan::Instance& instance_, Vulkan::Scheduler& scheduler_,
+             const ImageInfo& info_, const Image& base_image, u64 alias_offset)
+    : instance{&instance_}, scheduler{&scheduler_}, info{info_},
+      image{instance->GetDevice(), instance->GetAllocator()} {
+    if (info.pixel_format == vk::Format::eUndefined) {
+        return;
+    }
+    mip_hashes.resize(info.resources.levels);
+    vk::ImageCreateFlags flags{vk::ImageCreateFlagBits::eMutableFormat |
+                               vk::ImageCreateFlagBits::eExtendedUsage};
+    if (info.props.is_volume) {
+        flags |= vk::ImageCreateFlagBits::e2DArrayCompatible;
+    }
+    if (info.props.is_block && instance->GetDriverID() != vk::DriverId::eMoltenvk) {
+        flags |= vk::ImageCreateFlagBits::eBlockTexelViewCompatible;
+    }
+
+    usage_flags = ImageUsageFlags(info);
+    format_features = FormatFeatureFlags(usage_flags);
+
+    switch (info.pixel_format) {
+    case vk::Format::eD16Unorm:
+    case vk::Format::eD32Sfloat:
+    case vk::Format::eX8D24UnormPack32:
+        aspect_mask = vk::ImageAspectFlagBits::eDepth;
+        break;
+    case vk::Format::eD16UnormS8Uint:
+    case vk::Format::eD24UnormS8Uint:
+    case vk::Format::eD32SfloatS8Uint:
+        aspect_mask = vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil;
+        break;
+    default:
+        break;
+    }
+
+    constexpr auto tiling = vk::ImageTiling::eOptimal;
+    const auto supported_format = instance->GetSupportedFormat(info.pixel_format, format_features);
+    const vk::PhysicalDeviceImageFormatInfo2 format_info{
+        .format = supported_format,
+        .type = info.type,
+        .tiling = tiling,
+        .usage = usage_flags,
+        .flags = flags,
+    };
+    const auto image_format_properties =
+        instance->GetPhysicalDevice().getImageFormatProperties2(format_info);
+    if (image_format_properties.result == vk::Result::eErrorFormatNotSupported) {
+        LOG_ERROR(Render_Vulkan, "image format {} type {} is not supported (flags {}, usage {})",
+                  vk::to_string(supported_format), vk::to_string(info.type),
+                  vk::to_string(format_info.flags), vk::to_string(format_info.usage));
+    }
+    const auto supported_samples =
+        image_format_properties.result == vk::Result::eSuccess
+            ? image_format_properties.value.imageFormatProperties.sampleCounts
+            : vk::SampleCountFlagBits::e1;
+
+    const vk::ImageCreateInfo image_ci = {
+        .flags = flags,
+        .imageType = info.type,
+        .format = supported_format,
+        .extent{
+            .width = info.size.width,
+            .height = info.size.height,
+            .depth = info.size.depth,
+        },
+        .mipLevels = static_cast<u32>(info.resources.levels),
+        .arrayLayers = static_cast<u32>(info.resources.layers),
+        .samples = LiverpoolToVK::NumSamples(info.num_samples, supported_samples),
+        .tiling = tiling,
+        .usage = usage_flags,
+        .initialLayout = vk::ImageLayout::eUndefined,
+    };
+
+    image.CreateAliasing(base_image.image.allocation, alias_offset, image_ci);
+
+    Vulkan::SetObjectName(instance->GetDevice(), (vk::Image)image, "Aliased Image {}x{}x{} {:#x}:{:#x}",
                           info.size.width, info.size.height, info.size.depth, info.guest_address,
                           info.guest_size);
 }

@@ -135,6 +135,7 @@ public:
                                               ImageId cache_img_id);
 
     [[nodiscard]] ImageId ExpandImage(const ImageInfo& info, ImageId image_id);
+    [[nodiscard]] ImageId CreateAliasedImage(const ImageInfo& info, ImageId base_image_id, u64 alias_offset);
 
     /// Reuploads image contents.
     void RefreshImage(Image& image, Vulkan::Scheduler* custom_scheduler = nullptr);

@@ -259,6 +259,23 @@ std::tuple<ImageId, int, int> TextureCache::ResolveOverlap(const ImageInfo& imag
         UNREACHABLE_MSG("Encountered unresolvable image overlap with equal memory address.");
     }
 
+    // Check if the new image lies completely within the cache image bounds (aliasing case)
+    const VAddr cache_addr_start = tex_cache_image.info.guest_address;
+    const VAddr cache_addr_end = cache_addr_start + tex_cache_image.info.guest_size;
+    const VAddr new_addr_start = image_info.guest_address;
+    const VAddr new_addr_end = new_addr_start + image_info.guest_size;
+    
+    if (new_addr_start >= cache_addr_start && new_addr_end <= cache_addr_end && 
+        new_addr_start != cache_addr_start) {
+        if (image_info.pixel_format == tex_cache_image.info.pixel_format &&
+            image_info.type == tex_cache_image.info.type &&
+            image_info.num_samples == tex_cache_image.info.num_samples) {
+            const u64 alias_offset = new_addr_start - cache_addr_start;
+            const auto aliased_image_id = CreateAliasedImage(image_info, cache_image_id, alias_offset);
+            return {aliased_image_id, -1, -1};
+        }
+    }
+
     // Right overlap, the image requested is a possible subresource of the image from cache.
     if (image_info.guest_address > tex_cache_image.info.guest_address) {
         if (auto mip = image_info.MipOf(tex_cache_image.info); mip >= 0) {
@@ -328,6 +345,20 @@ ImageId TextureCache::ExpandImage(const ImageInfo& info, ImageId image_id) {
 
     TrackImage(new_image_id);
     new_image.flags &= ~ImageFlagBits::Dirty;
+    return new_image_id;
+}
+
+ImageId TextureCache::CreateAliasedImage(const ImageInfo& info, ImageId base_image_id, u64 alias_offset) {
+    auto& base_image = slot_images[base_image_id];
+    const auto new_image_id = slot_images.insert(instance, scheduler, info, base_image, alias_offset);
+    RegisterImage(new_image_id);
+
+    auto& new_image = slot_images[new_image_id];
+
+    new_image.usage = base_image.usage;
+    new_image.flags &= ~ImageFlagBits::Dirty;
+
+    TrackImage(new_image_id);
     return new_image_id;
 }
 

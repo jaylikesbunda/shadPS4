@@ -54,6 +54,7 @@ struct UniqueImage {
     }
 
     void Create(const vk::ImageCreateInfo& image_ci);
+    void CreateAliasing(VmaAllocation base_allocation, u64 alias_offset, const vk::ImageCreateInfo& image_ci);
 
     operator vk::Image() const {
         return image;
@@ -64,12 +65,14 @@ private:
     VmaAllocator allocator;
     VmaAllocation allocation;
     vk::Image image{};
+    bool is_aliased{false};
 };
 
 constexpr Common::SlotId NULL_IMAGE_ID{0};
 
 struct Image {
     Image(const Vulkan::Instance& instance, Vulkan::Scheduler& scheduler, const ImageInfo& info);
+    Image(const Vulkan::Instance& instance, Vulkan::Scheduler& scheduler, const ImageInfo& info, const Image& base_image, u64 alias_offset);
     ~Image();
 
     Image(const Image&) = delete;
