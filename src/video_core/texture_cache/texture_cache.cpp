@@ -372,14 +372,39 @@ void TextureCache::SynchronizeAliases(ImageId image_id) {
         return;
     }
 
-    // Ensure all aliases are in a compatible state
+    // End rendering so we can insert a barrier.
+    scheduler.EndRendering();
+
+    auto cmdbuf = scheduler.CommandBuffer();
+
+    vk::PipelineStageFlags2 src_stage_mask = vk::PipelineStageFlagBits2::eNone;
+    vk::AccessFlags2 src_access_mask = vk::AccessFlagBits2::eNone;
+
+    // Make all aliases share the same layout and gather src stage/access for barrier
     for (ImageId alias_id : image.aliases) {
         Image& alias = slot_images[alias_id];
-        // If the alias has a different layout, we need to synchronize
-        if (alias.last_state.layout != image.last_state.layout) {
+        src_stage_mask |= alias.last_state.pl_stage;
+        src_access_mask |= alias.last_state.access_mask;
+
+        if (alias.last_state.layout != image.last_state.layout ||
+            alias.last_state.access_mask != image.last_state.access_mask) {
             alias.Transit(image.last_state.layout, image.last_state.access_mask, {});
         }
     }
+
+    // Insert a global memory barrier ensuring writes are visible to subsequent reads
+    const vk::MemoryBarrier2 memory_barrier{
+        .srcStageMask = src_stage_mask,
+        .srcAccessMask = src_access_mask,
+        .dstStageMask = image.last_state.pl_stage,
+        .dstAccessMask = image.last_state.access_mask,
+    };
+
+    cmdbuf.pipelineBarrier2(vk::DependencyInfo{
+        .dependencyFlags = vk::DependencyFlagBits::eByRegion,
+        .memoryBarrierCount = 1,
+        .pMemoryBarriers = &memory_barrier,
+    });
 }
 
 ImageId TextureCache::FindImage(BaseDesc& desc, FindFlags flags) {
